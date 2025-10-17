@@ -987,6 +987,29 @@ func (t *FilesystemTool) handleSearchFilesContent(_ context.Context, toolCall to
 	return &tools.ToolCallResult{Output: strings.Join(results, "\n")}, nil
 }
 
+// normalizeNewlines checks if content contains literal \n sequences and converts them to actual newlines.
+// This helps when LLMs accidentally generate literal backslash-n instead of actual newline characters.
+func normalizeNewlines(content string) string {
+	// Check if content contains literal \n (backslash followed by n)
+	// We want to be careful not to affect legitimate uses, so we check for common patterns
+	// that suggest the LLM meant newlines but generated literal \n
+	// If the content doesn't contain actual newlines but has \n, likely the LLM made a mistake
+	if !strings.Contains(content, "\n") && strings.Contains(content, "\\n") {
+		return strings.ReplaceAll(content, "\\n", "\n")
+	}
+
+	// If content has very few actual newlines relative to \n occurrences, also fix it
+	newlineCount := strings.Count(content, "\n")
+	literalBackslashNCount := strings.Count(content, "\\n")
+
+	// If there are significantly more \n than newlines, likely a problem
+	if literalBackslashNCount > 0 && (newlineCount == 0 || literalBackslashNCount > newlineCount*2) {
+		return strings.ReplaceAll(content, "\\n", "\n")
+	}
+
+	return content
+}
+
 func (t *FilesystemTool) handleWriteFile(ctx context.Context, toolCall tools.ToolCall) (*tools.ToolCallResult, error) {
 	var args WriteFileArgs
 	if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
@@ -997,7 +1020,10 @@ func (t *FilesystemTool) handleWriteFile(ctx context.Context, toolCall tools.Too
 		return &tools.ToolCallResult{Output: fmt.Sprintf("Error: %s", err)}, nil
 	}
 
-	if err := os.WriteFile(args.Path, []byte(args.Content), 0o644); err != nil {
+	// Normalize newlines to handle cases where LLMs generate literal \n
+	normalizedContent := normalizeNewlines(args.Content)
+
+	if err := os.WriteFile(args.Path, []byte(normalizedContent), 0o644); err != nil {
 		return &tools.ToolCallResult{Output: fmt.Sprintf("Error writing file: %s", err)}, nil
 	}
 
@@ -1006,7 +1032,7 @@ func (t *FilesystemTool) handleWriteFile(ctx context.Context, toolCall tools.Too
 		return &tools.ToolCallResult{Output: fmt.Sprintf("File written successfully but post-edit command failed: %s", err)}, nil
 	}
 
-	return &tools.ToolCallResult{Output: fmt.Sprintf("File written successfully: %s (%d bytes)", args.Path, len(args.Content))}, nil
+	return &tools.ToolCallResult{Output: fmt.Sprintf("File written successfully: %s (%d bytes)", args.Path, len(normalizedContent))}, nil
 }
 
 func (t *FilesystemTool) Start(context.Context) error {

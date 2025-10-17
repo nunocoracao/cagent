@@ -1241,6 +1241,86 @@ func TestFilesystemTool_OutputSchema(t *testing.T) {
 	}
 }
 
+func TestNormalizeNewlines(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "no newlines, has literal backslash-n",
+			input:    "line1\\nline2\\nline3",
+			expected: "line1\nline2\nline3",
+		},
+		{
+			name:     "already has actual newlines",
+			input:    "line1\nline2\nline3",
+			expected: "line1\nline2\nline3",
+		},
+		{
+			name:     "mixed - more literal than actual",
+			input:    "line1\nline2\\nline3\\nline4\\nline5",
+			expected: "line1\nline2\nline3\nline4\nline5",
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "no newlines at all",
+			input:    "single line content",
+			expected: "single line content",
+		},
+		{
+			name:     "legitimate backslash-n (already has many newlines)",
+			input:    "line1\nline2\nline3\nline4\nline5\nSome regex: \\n",
+			expected: "line1\nline2\nline3\nline4\nline5\nSome regex: \\n",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := normalizeNewlines(tc.input)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func TestFilesystemTool_WriteFileWithNewlineNormalization(t *testing.T) {
+	tmpDir := t.TempDir()
+	tool := NewFilesystemTool([]string{tmpDir})
+
+	handler := getToolHandler(t, tool, "write_file")
+
+	// Test that literal \n gets converted to actual newlines
+	testFile := filepath.Join(tmpDir, "test_newlines.txt")
+	contentWithLiteralNewlines := "line1\\nline2\\nline3"
+	expectedContent := "line1\nline2\nline3"
+
+	args := map[string]any{
+		"path":    testFile,
+		"content": contentWithLiteralNewlines,
+	}
+	result := callHandler(t, handler, args)
+
+	assert.Contains(t, result.Output, "File written successfully")
+	assert.FileExists(t, testFile)
+
+	// Verify content has actual newlines, not literal \n
+	writtenContent, err := os.ReadFile(testFile)
+	require.NoError(t, err)
+	assert.Equal(t, expectedContent, string(writtenContent))
+	assert.NotContains(t, string(writtenContent), "\\n", "Should not contain literal backslash-n")
+
+	// Verify we can split by newlines
+	lines := strings.Split(string(writtenContent), "\n")
+	assert.Len(t, lines, 3)
+	assert.Equal(t, "line1", lines[0])
+	assert.Equal(t, "line2", lines[1])
+	assert.Equal(t, "line3", lines[2])
+}
+
 func TestFilesystemTool_ParametersAreObjects(t *testing.T) {
 	tool := NewFilesystemTool(nil)
 
