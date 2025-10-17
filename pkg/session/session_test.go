@@ -221,3 +221,54 @@ func TestGetMessagesWithSummary(t *testing.T) {
 	assert.True(t, summaryFound, "should include summary as system message")
 	assert.Equal(t, 2, userAssistantMessages, "should only include messages after summary")
 }
+
+func TestGetMessagesSkipsImplicit(t *testing.T) {
+	// Create a test agent
+	testAgent := &agent.Agent{}
+
+	// Create a session
+	s := New()
+
+	// Add regular user message
+	s.AddMessage(NewAgentMessage(testAgent, &chat.Message{
+		Role:    chat.MessageRoleUser,
+		Content: "regular user message",
+	}))
+
+	// Add implicit user message (should be skipped)
+	s.AddMessage(ImplicitUserMessage("", "Follow the default instructions"))
+
+	// Add assistant message
+	s.AddMessage(NewAgentMessage(testAgent, &chat.Message{
+		Role:    chat.MessageRoleAssistant,
+		Content: "assistant response",
+	}))
+
+	// Add another implicit message
+	s.AddMessage(ImplicitUserMessage("", "Another implicit message"))
+
+	// Add another regular message
+	s.AddMessage(NewAgentMessage(testAgent, &chat.Message{
+		Role:    chat.MessageRoleUser,
+		Content: "another regular message",
+	}))
+
+	// Get messages
+	messages := s.GetMessages(testAgent)
+
+	// Count user messages
+	userMessageCount := 0
+	for _, msg := range messages {
+		if msg.Role == chat.MessageRoleUser {
+			userMessageCount++
+			// Verify no implicit messages are included
+			assert.NotEqual(t, "Follow the default instructions", msg.Content,
+				"implicit message should not be included")
+			assert.NotEqual(t, "Another implicit message", msg.Content,
+				"implicit message should not be included")
+		}
+	}
+
+	// Should have exactly 2 user messages (not including implicit ones)
+	assert.Equal(t, 2, userMessageCount, "should only include non-implicit user messages")
+}

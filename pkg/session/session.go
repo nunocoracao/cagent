@@ -324,7 +324,11 @@ func (s *Session) GetMessages(a *agent.Agent) []chat.Message {
 	for i := startIndex; i < len(s.Messages); i++ {
 		item := s.Messages[i]
 		if item.IsMessage() {
-			messages = append(messages, item.Message.Message)
+			// Skip implicit messages - they should not be sent to the LLM
+			// but are kept in the session for debugging/logging purposes
+			if !item.Message.Implicit {
+				messages = append(messages, item.Message.Message)
+			}
 		}
 	}
 
